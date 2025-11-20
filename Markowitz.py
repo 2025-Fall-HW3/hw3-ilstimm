@@ -63,6 +63,16 @@ class EqualWeightPortfolio:
         TODO: Complete Task 1 Below
         """
 
+        # 計算資產數量
+        n_assets = len(assets)
+        
+        # 計算單一資產權重 (1 / N)
+        weight = 1.0 / n_assets
+
+        # 將權重填入 DataFrame 對應的資產欄位中
+        # 這會將所有日期的這些資產權重都設為相同的值
+        self.portfolio_weights[assets] = weight
+
         """
         TODO: Complete Task 1 Above
         """
@@ -114,6 +124,26 @@ class RiskParityPortfolio:
         TODO: Complete Task 2 Below
         """
 
+        # 修正：起始點設為 lookback + 1，以避開第 0 天的初始 0 收益，並與 MeanVariance 邏輯對齊
+        for i in range(self.lookback + 1, len(df)):
+            # 1. 獲取回顧窗口內的收益率數據
+            # 使用與 MeanVariance 相同的切片邏輯：[i - lookback : i]
+            window_returns = df_returns[assets].iloc[i - self.lookback : i]
+
+            # 2. 計算每個資產在該窗口內的波動率 (標準差)
+            # Pandas 的 std() 預設為樣本標準差 (ddof=1)，符合金融慣例
+            volatilities = window_returns.std()
+
+            # 3. 計算波動率的倒數 (Inverse Volatility)
+            # 公式：w_i = 1 / sigma_i
+            inverse_volatilities = 1 / volatilities
+
+            # 4. 歸一化權重：確保所有權重總和為 1
+            # 公式：w_i_normalized = w_i / sum(w)
+            weights = inverse_volatilities / inverse_volatilities.sum()
+
+            # 5. 將計算出的權重填入對應的日期
+            self.portfolio_weights.loc[df.index[i], assets] = weights
 
 
         """
@@ -190,8 +220,28 @@ class MeanVariancePortfolio:
 
                 # Sample Code: Initialize Decision w and the Objective
                 # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                # w = model.addMVar(n, name="w", ub=1)
+                # model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+
+                # 1. 定義決策變數 w (權重)
+                # lb=0.0 表示 w >= 0 (Long-only constraint)
+                # ub=1.0 表示單一資產權重不超過 100%
+                w = model.addMVar(n, lb=0.0, ub=1.0, name="w")
+
+                # 2. 設定目標函數: Maximize (Return - 0.5 * Gamma * Risk)
+                # 根據 PDF 公式：max(w'μ - (γ/2)w'Σw)
+                # mu @ w 是預期報酬
+                # w @ Sigma @ w 是投資組合變異數
+                portfolio_return = mu @ w
+                portfolio_risk = w @ Sigma @ w
+                
+                # 注意這裡加入了 0.5 的係數以符合題目公式
+                model.setObjective(portfolio_return - 0.5 * gamma * portfolio_risk, gp.GRB.MAXIMIZE)
+
+                # 3. 設定限制式: 權重總和等於 1 (No leverage constraint)
+                model.addConstr(w.sum() == 1, "budget")
+
+
 
                 """
                 TODO: Complete Task 3 Above

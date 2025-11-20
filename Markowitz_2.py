@@ -71,6 +71,33 @@ class MyPortfolio:
         TODO: Complete Task 4 Below
         """
         
+        # 1. 取得資產列表（排除 benchmark，通常是 SPY）
+        assets = self.price.columns[self.price.columns != self.exclude]
+        
+        # 2. 計算滾動平均報酬 (Expected Return) 與 滾動標準差 (Risk)
+        # 使用 rolling window 計算過去 lookback 天數的表現
+        rolling_mean = self.returns[assets].rolling(window=self.lookback).mean()
+        rolling_std = self.returns[assets].rolling(window=self.lookback).std()
+        
+        # 3. 計算簡易的夏普分數 (Sharpe Score proxy)
+        # 加上 1e-8 是為了避免除以 0 的錯誤
+        scores = rolling_mean / (rolling_std + 1e-8)
+        
+        # 4. 處理 Long-Only 限制 (僅做多)
+        # 如果預期報酬/分數為負，將權重設為 0
+        scores[scores < 0] = 0
+
+        # 5. 權重歸一化 (Normalization)
+        # 確保每天的總權重相加為 1 (No Leverage constraint)
+        row_sums = scores.sum(axis=1)
+        
+        # 避免整列都是 0 導致除以 0 (例如市場大跌時所有分數皆為負)
+        # 如果整列為 0，則平均分配權重 (Equal Weight) 作為防守
+        is_zero_sum = row_sums == 0
+        scores.loc[is_zero_sum, :] = 1
+        row_sums = scores.sum(axis=1)
+        
+        self.portfolio_weights = scores.div(row_sums, axis=0)
         
         """
         TODO: Complete Task 4 Above
